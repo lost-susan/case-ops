@@ -1,0 +1,258 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self'; style-src 'self' https://fonts.googleapis.com; font-src https://fonts.gstatic.com; img-src 'self' data:; connect-src 'none'; object-src 'none'; base-uri 'none'; form-action 'none'">
+  <meta name="referrer" content="no-referrer">
+  <meta name="color-scheme" content="dark">
+  <meta name="theme-color" content="#01161E">
+  <title>CASE-OPS — State vs. Alex Miller • NY-2026-CR</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Instrument+Sans:wght@400;500;600;700&family=Source+Code+Pro:wght@400;500;600&display=swap">
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&display=block">
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <a class="skip" href="#stream">Skip to content</a>
+
+  <div class="shell">
+    <!-- Sidebar (permanent ≥1024px, off-canvas drawer below) -->
+    <aside class="sidebar" id="sidebar" aria-label="Primary">
+      <div class="side-top">
+        <div class="brand">
+          <span class="logo"><span class="ms" aria-hidden="true">balance</span></span>
+          <div>
+            <span class="brand-name">CASE-OPS</span>
+            <span class="mono brand-sub">EVIDENTIARY OS</span>
+          </div>
+        </div>
+        <button type="button" id="drawer-close" class="icon-btn drawer-only" aria-label="Close navigation"><span class="ms" aria-hidden="true">close</span></button>
+      </div>
+
+      <nav class="sidenav" aria-label="Case navigation">
+        <button type="button" class="nav-btn" data-view="all"><span class="ms" aria-hidden="true">dashboard</span><span>Case Overview</span></button>
+        <button type="button" class="nav-btn" data-view="intake"><span class="ms" aria-hidden="true">folder_zip</span><span>Chaos Intake</span></button>
+        <button type="button" class="nav-btn" data-view="timeline"><span class="ms" aria-hidden="true">timeline</span><span>Master Timeline</span></button>
+        <button type="button" class="nav-btn" data-view="conflicts"><span class="ms" aria-hidden="true">compare_arrows</span><span>Contradictions</span><span class="badge err mono push" id="nav-badge">0</span></button>
+        <button type="button" class="nav-btn" data-view="deadlines"><span class="ms" aria-hidden="true">event_upcoming</span><span>Deadlines</span></button>
+        <button type="button" class="nav-btn" data-view="audit"><span class="ms" aria-hidden="true">fact_check</span><span>Audit Ledger</span></button>
+      </nav>
+
+      <div class="custody">
+        <span class="label">Chain of custody</span>
+        <span class="mono small">SHA-256 computed on ingest</span>
+        <span class="muted small" id="custody-count">0 files indexed</span>
+      </div>
+    </aside>
+
+    <div class="main" id="main">
+      <!-- Global header -->
+      <header class="topbar" id="topbar">
+        <div class="case">
+          <button type="button" id="menu-btn" class="icon-btn menu" aria-label="Open navigation" aria-controls="sidebar" aria-expanded="false"><span class="ms" aria-hidden="true">menu</span></button>
+          <h1 id="case-title">Case</h1>
+          <span class="sep" aria-hidden="true">•</span>
+          <span class="mono accent" id="case-docket"></span>
+          <span class="tag">Prototype · demo data</span>
+        </div>
+
+        <div class="seg" role="group" aria-label="Evidence views">
+          <button type="button" data-view="all" aria-pressed="true">All Evidence</button>
+          <button type="button" data-view="timeline" aria-pressed="false">Timeline</button>
+          <button type="button" data-view="conflicts" aria-pressed="false">Contradictions</button>
+          <button type="button" data-view="deadlines" aria-pressed="false">Deadlines</button>
+        </div>
+
+        <div class="tools">
+          <form class="search" role="search" id="search-form">
+            <label class="sr" for="q">Search across all indexed case files</label>
+            <span class="ms" aria-hidden="true">search</span>
+            <input id="q" type="search" placeholder="Search files, actors, quotes…" autocomplete="off" maxlength="200">
+          </form>
+          <button type="button" id="upload-btn" class="btn primary"><span class="ms" aria-hidden="true">add</span><span>Upload Evidence</span></button>
+        </div>
+        <p class="sr" id="search-status" role="status"></p>
+      </header>
+
+      <main class="workspace">
+        <div class="stream" id="stream" tabindex="-1">
+
+          <!-- A. Chaos Intake & Integrity Summary -->
+          <section class="sec" data-sec="intake" aria-labelledby="h-intake">
+            <div class="sec-head">
+              <h2 id="h-intake">Chaos Intake &amp; Integrity Summary</h2>
+              <span class="mono muted small" id="intake-count">0 indexed files</span>
+            </div>
+
+            <div class="metrics">
+              <article class="card metric">
+                <header><h3 class="label">OCR confidence</h3><span class="ms accent" aria-hidden="true">verified</span></header>
+                <p class="mono big" id="m-conf">—</p>
+                <p class="muted small">Mean OCR / transcription certainty</p>
+              </article>
+              <article class="card metric">
+                <header><h3 class="label">Conflicts</h3><span class="ms err-text" aria-hidden="true">warning</span></header>
+                <p class="mono big err-text" id="m-conflicts">0</p>
+                <p class="muted small">Cross-file contradictions</p>
+              </article>
+              <article class="card metric">
+                <header><h3 class="label">Next cutoff</h3><span class="ms warn-text" aria-hidden="true">schedule</span></header>
+                <p class="mono big warn-text" id="m-next">—</p>
+                <p class="muted small" id="m-next-sub"></p>
+              </article>
+            </div>
+
+            <div class="card intake">
+              <button type="button" id="drop" class="drop inline" aria-label="Choose evidence files to upload, or drop them here">
+                <span class="drop-ico"><span class="ms" aria-hidden="true">cloud_upload</span></span>
+                <span class="drop-text">
+                  <span class="drop-title">Drop raw discovery files to de-noise &amp; index</span>
+                  <span class="mono muted small">.pdf, .txt (WhatsApp), .wav / .mp3, .jpg / .png</span>
+                </span>
+                <span class="btn secondary" aria-hidden="true">Browse</span>
+              </button>
+              <ul class="files" id="files" role="list"></ul>
+            </div>
+          </section>
+
+          <!-- B. Master Chronology Feed -->
+          <section class="sec" data-sec="timeline" aria-labelledby="h-timeline">
+            <div class="sec-head wrap">
+              <div>
+                <h2 id="h-timeline">Master Chronology Feed</h2>
+                <p class="muted small">Select any event to inspect its raw source proof.</p>
+              </div>
+              <div class="seg" role="group" aria-label="Filter events">
+                <button type="button" data-tl="all" aria-pressed="true">All</button>
+                <button type="button" data-tl="conflict" aria-pressed="false">Conflicts</button>
+                <button type="button" data-tl="verified" aria-pressed="false">Verified</button>
+              </div>
+            </div>
+            <ol class="feed" id="timeline"></ol>
+          </section>
+
+          <!-- C. Contradiction Detector -->
+          <section class="sec" data-sec="conflicts" aria-labelledby="h-conflicts">
+            <div class="sec-head wrap">
+              <div>
+                <h2 id="h-conflicts">Contradiction Detector</h2>
+                <p class="muted small">Cross-document and audio discrepancies flagged for impeachment.</p>
+              </div>
+              <span class="mono err-text small" id="conflict-count"></span>
+            </div>
+            <div class="stack" id="conflicts"></div>
+          </section>
+
+          <!-- D. Statutory Deadline Radar -->
+          <section class="sec" data-sec="deadlines" aria-labelledby="h-deadlines">
+            <div class="sec-head wrap">
+              <div>
+                <h2 id="h-deadlines">Statutory Deadline Radar</h2>
+                <p class="muted small">Court filing cutoffs computed from verified trigger dates.</p>
+              </div>
+              <span class="mono muted small" id="dl-asof"></span>
+            </div>
+            <div class="deadlines" id="deadlines"></div>
+          </section>
+
+          <!-- Audit Ledger -->
+          <section class="sec" data-sec="audit" aria-labelledby="h-audit" hidden>
+            <div class="sec-head">
+              <div>
+                <h2 id="h-audit">Evidentiary Audit Ledger</h2>
+                <p class="muted small">Ingestion, OCR verification and proof-link log for <span id="audit-docket"></span>.</p>
+              </div>
+            </div>
+            <div class="card table-wrap" tabindex="0" role="region" aria-label="Audit ledger table">
+              <table>
+                <thead><tr><th scope="col">Timestamp</th><th scope="col">Action</th><th scope="col">Source hash</th></tr></thead>
+                <tbody id="ledger"></tbody>
+              </table>
+            </div>
+          </section>
+        </div>
+
+        <!-- E. Source Proof Canvas (docked ≥1280px, bottom sheet below) -->
+        <aside class="proof" id="proof" aria-label="Source proof canvas">
+          <div class="proof-head">
+            <span class="ms accent" id="proof-icon" aria-hidden="true">description</span>
+            <div class="proof-title">
+              <h2 id="proof-file">—</h2>
+              <p class="mono accent small" id="proof-meta"></p>
+            </div>
+            <div class="proof-actions">
+              <button type="button" id="zoom-out" class="icon-btn" aria-label="Zoom out source"><span class="ms" aria-hidden="true">zoom_out</span></button>
+              <span class="mono muted small" id="zoom-readout" aria-live="polite">100%</span>
+              <button type="button" id="zoom-in" class="icon-btn" aria-label="Zoom in source"><span class="ms" aria-hidden="true">zoom_in</span></button>
+              <button type="button" id="proof-close" class="icon-btn proof-close" aria-label="Close source proof"><span class="ms" aria-hidden="true">close</span></button>
+            </div>
+          </div>
+          <div class="proof-banner">
+            <span class="small" id="proof-insight"></span>
+            <span class="mono accent small" id="proof-conf"></span>
+          </div>
+
+          <div id="doc-view" class="viewer">
+            <div class="scan">
+              <div class="stamps mono small muted"><span id="doc-exhibit"></span><span id="doc-page"></span></div>
+              <div class="doc-lines mono" id="doc-lines"></div>
+            </div>
+            <div class="bbox-row">
+              <span class="label">Bounding box</span>
+              <span class="mono accent small" id="doc-bbox"></span>
+            </div>
+          </div>
+
+          <div id="audio-view" class="viewer" hidden>
+            <div class="player">
+              <div class="player-row">
+                <button type="button" id="play" class="btn primary"><span class="ms" id="play-icon" aria-hidden="true">play_arrow</span><span id="play-label">Play clip</span></button>
+                <span class="mono accent" id="audio-time">00:00 / 00:00</span>
+              </div>
+              <div id="wave" class="wave" role="slider" tabindex="0" aria-label="Audio position" aria-valuemin="0" aria-valuemax="0" aria-valuenow="0"></div>
+            </div>
+            <p class="muted small">Playback is simulated in this prototype; no media file is attached.</p>
+            <h3 class="label">Synced forensic transcript</h3>
+            <div class="transcript" id="transcript"></div>
+          </div>
+        </aside>
+      </main>
+    </div>
+  </div>
+
+  <div class="scrim" id="scrim" hidden></div>
+
+  <!-- Upload dialog (native <dialog>: focus trap, Esc and inert background built in) -->
+  <dialog id="upload-dlg" aria-labelledby="dlg-title">
+    <div class="dlg-body">
+      <div class="dlg-head">
+        <h2 id="dlg-title">Ingest discovery batch</h2>
+        <button type="button" id="dlg-close" class="icon-btn" aria-label="Close upload dialog"><span class="ms" aria-hidden="true">close</span></button>
+      </div>
+      <p class="muted">Add mixed evidentiary files (.pdf, .txt WhatsApp exports, .wav / .mp3 recordings, .jpg / .png scans). Up to 100 MB each. Files are hashed in your browser and are not uploaded anywhere.</p>
+
+      <label class="drop" id="dlg-drop">
+        <span class="ms big accent" aria-hidden="true">upload_file</span>
+        <span class="drop-title">Drop files here or choose files</span>
+        <span class="mono muted small">.pdf .txt .wav .mp3 .jpg .png</span>
+        <input id="file-input" class="sr" type="file" multiple accept=".pdf,.txt,.wav,.mp3,.jpg,.jpeg,.png">
+      </label>
+
+      <ul class="queue" id="queue" role="list"></ul>
+      <p class="sr" id="queue-status" role="status"></p>
+
+      <div class="dlg-foot">
+        <button type="button" id="dlg-cancel" class="btn ghost">Close</button>
+        <button type="button" id="run-btn" class="btn primary" disabled>Run ingestion</button>
+      </div>
+    </div>
+  </dialog>
+
+  <noscript><p class="noscript">CASE-OPS needs JavaScript to render evidence views.</p></noscript>
+  <script src="core.js"></script>
+  <script src="data.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>

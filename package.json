@@ -1,0 +1,11 @@
+{
+  "name": "case-ops-frontend",
+  "version": "1.0.0",
+  "private": true,
+  "description": "CASE-OPS evidentiary ingestion, de-noising and chronology frontend (static, dependency-free)",
+  "scripts": {
+    "start": "python -m http.server 8080",
+    "test": "node --test"
+  },
+  "engines": { "node": ">=20" }
+}
