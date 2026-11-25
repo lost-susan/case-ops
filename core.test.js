@@ -71,11 +71,16 @@ test('demo data: every insight resolves to raw proof', () => {
 });
 
 test('shipped files obey the security posture (no HTML-string sinks, no inline script/style)', () => {
-  const app = fs.readFileSync('./app.js', 'utf8');
-  assert.ok(!/innerHTML|outerHTML|insertAdjacentHTML|document\.write|\beval\(|new Function/.test(app));
-  const html = fs.readFileSync('./index.html', 'utf8');
-  assert.ok(!/<script(?![^>]*\bsrc=)/i.test(html), 'inline <script>');
-  assert.ok(!/\sstyle\s*=/i.test(html), 'inline style attribute');
-  assert.ok(!/\son[a-z]+\s*=/i.test(html), 'inline event handler');
-  assert.match(html, /Content-Security-Policy/);
+  for (const f of ['app.js', 'login.js', 'auth.js', 'session.js']) {
+    const src = fs.readFileSync('./' + f, 'utf8');
+    assert.ok(!/innerHTML|outerHTML|insertAdjacentHTML|document\.write|\beval\(|new Function/.test(src), f);
+  }
+  for (const f of ['index.html', 'app.html']) {
+    const html = fs.readFileSync('./' + f, 'utf8');
+    assert.ok(!/<script(?![^>]*\bsrc=)/i.test(html), f + ' inline <script>');
+    assert.ok(!/\sstyle\s*=/i.test(html), f + ' inline style attribute');
+    assert.ok(!/\son[a-z]+\s*=/i.test(html), f + ' inline event handler');
+    assert.match(html, /Content-Security-Policy/);
+    assert.match(html, /<meta name="description"/);
+  }
 });
