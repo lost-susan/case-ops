@@ -1,0 +1,48 @@
+# Local/staging stack:  cp .env.example .env  (fill in the secrets)  then
+#   docker compose -f infrastructure/docker-compose.yml --env-file .env up --build
+#   docker compose -f infrastructure/docker-compose.yml --env-file .env run --rm backend python -m app.cli init-db
+#   docker compose -f infrastructure/docker-compose.yml --env-file .env run --rm backend python -m app.cli create-user --email you@firm.com --role attorney
+services:
+  db:
+    image: postgres:16
+    environment:
+      POSTGRES_DB: caseops
+      POSTGRES_USER: caseops
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U caseops -d caseops"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+    restart: unless-stopped        # no published ports: only the backend can reach the database
+
+  backend:
+    build:
+      context: ..
+      dockerfile: backend/Dockerfile
+    environment:
+      CASEOPS_ENV: production
+      CASEOPS_DATABASE_URL: postgresql+psycopg://caseops:${POSTGRES_PASSWORD}@db:5432/caseops
+      CASEOPS_SECRET_KEY: ${CASEOPS_SECRET_KEY:?set CASEOPS_SECRET_KEY in .env}
+      CASEOPS_WEBHOOK_SECRET: ${CASEOPS_WEBHOOK_SECRET:?set CASEOPS_WEBHOOK_SECRET in .env}
+      CASEOPS_COOKIE_SECURE: ${CASEOPS_COOKIE_SECURE:-true}
+      CASEOPS_COOKIE_SAMESITE: ${CASEOPS_COOKIE_SAMESITE:-lax}
+      CASEOPS_CORS_ORIGINS: ${CASEOPS_CORS_ORIGINS:-[]}
+    depends_on:
+      db:
+        condition: service_healthy
+    volumes:
+      - uploads:/data/uploads
+    ports:
+      - "127.0.0.1:8000:8000"      # localhost only; put a TLS reverse proxy in front for real use
+    restart: unless-stopped
+    read_only: true
+    tmpfs: ["/tmp"]
+    security_opt: ["no-new-privileges:true"]
+    cap_drop: ["ALL"]
+
+volumes:
+  pgdata:
+  uploads:
