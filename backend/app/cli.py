@@ -1,13 +1,16 @@
 """Admin commands (there is deliberately no public registration endpoint).
 
-  python -m app.cli init-db
+  python -m app.cli migrate                    # create/upgrade the schema with Alembic (use this in production)
+  python -m app.cli init-db                    # development shortcut: create_all, no migrations or audit triggers
   python -m app.cli create-user --email lawyer@firm.com --role attorney
   python -m app.cli add-member --case-id <uuid> --email paralegal@firm.com --role editor
+  python -m app.cli reap [--minutes 15]        # re-run ingestion stuck in queued/processing (schedule it)
 """
 import argparse
 import getpass
 import sys
 import uuid
+from pathlib import Path
 
 from sqlalchemy import select
 
@@ -24,6 +27,7 @@ def main(argv: list[str] | None = None) -> int:
     p = argparse.ArgumentParser(prog="app.cli")
     sub = p.add_subparsers(dest="cmd", required=True)
     sub.add_parser("init-db")
+    sub.add_parser("migrate")
     cu = sub.add_parser("create-user")
     cu.add_argument("--email", required=True)
     cu.add_argument("--role", choices=["admin", "attorney", "paralegal"], default="attorney")
@@ -31,12 +35,33 @@ def main(argv: list[str] | None = None) -> int:
     am.add_argument("--case-id", required=True, type=uuid.UUID)
     am.add_argument("--email", required=True)
     am.add_argument("--role", choices=["owner", "editor", "viewer"], default="viewer")
+    rp = sub.add_parser("reap")
+    rp.add_argument("--minutes", type=int, default=None)
     args = p.parse_args(argv)
 
-    init_engine(get_settings().database_url)
+    settings = get_settings()
+    if args.cmd == "migrate":
+        from alembic import command
+        from alembic.config import Config
+
+        backend = Path(__file__).resolve().parents[1]
+        cfg = Config(str(backend / "alembic.ini"))
+        cfg.set_main_option("script_location", str(backend / "migrations"))
+        cfg.set_main_option("sqlalchemy.url", settings.database_url.replace("%", "%%"))
+        command.upgrade(cfg, "head")
+        print("Database is up to date.")
+        return 0
+
+    init_engine(settings.database_url)
     if args.cmd == "init-db":
         Base.metadata.create_all(get_engine())
-        print("Tables created.")
+        print("Tables created (development only: run `migrate` instead for real deployments).")
+        return 0
+
+    if args.cmd == "reap":
+        from app.services.reaper import reap
+
+        print(f"Processed {reap(get_settings(), args.minutes)} stuck document(s).")
         return 0
 
     with session_factory()() as db:

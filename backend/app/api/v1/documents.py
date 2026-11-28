@@ -54,7 +54,9 @@ def upload_document(background: BackgroundTasks, file: UploadFile = File(...),
         db.rollback()
         storage.delete(key)
         raise
-    enqueue_ingestion(background, doc.id, settings.storage_dir, settings.ingestion_provider)
+    options = ({"date_order": settings.ingest_date_order, "whisper_model": settings.whisper_model,
+                "ocr_lang": settings.ocr_lang} if settings.ingestion_provider == "local" else None)
+    enqueue_ingestion(background, doc.id, settings.storage_dir, settings.ingestion_provider, options)
     return doc
 
 

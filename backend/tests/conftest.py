@@ -21,7 +21,7 @@ def settings(tmp_path):
     return Settings(
         env="test", database_url=os.environ.get("CASEOPS_TEST_DATABASE_URL") or f"sqlite:///{tmp_path / 't.db'}", secret_key="s" * 48, webhook_secret="w" * 48,
         cookie_secure=False, storage_dir=str(tmp_path / "uploads"), auto_create_tables=True,
-        cors_origins=["http://localhost:8080"], max_upload_bytes=1024 * 1024,
+        cors_origins=["http://localhost:8080"], max_upload_bytes=1024 * 1024, ingestion_provider="mock", rate_limit_enabled=False,
     )
 
 

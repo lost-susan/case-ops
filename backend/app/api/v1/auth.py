@@ -8,13 +8,15 @@ from sqlalchemy.orm import Session
 
 from app.api.deps import COOKIE_NAME, Principal, current_principal
 from app.config import Settings, get_settings
+from app.core import totp
 from app.core.clock import utcnow
 from app.core.security import (DUMMY_HASH, create_access_token, csrf_token_for, hash_password, needs_rehash,
                                verify_password)
 from datetime import datetime, timedelta, timezone
 from app.db import get_db
 from app.models.orm import LoginThrottle, User
-from app.models.schemas import LoginIn, SessionOut, UserOut
+from app.models.schemas import (LoginIn, MfaCodeIn, MfaDisableIn, MfaSetupOut, PasswordChangeIn, SessionOut,
+                                UserOut)
 from app.services import audit_logger
 
 router = APIRouter(prefix="/auth", tags=["auth"])
@@ -70,6 +72,18 @@ def login(body: LoginIn, response: Response, db: Session = Depends(get_db),
         db.commit()
         raise HTTPException(401, GENERIC_FAILURE)  # same answer for unknown email, wrong password, disabled account
 
+    if user.mfa_enabled:
+        if body.totp is None:
+            raise HTTPException(401, "mfa_required")  # only reached with the right password; frontend asks for the code
+        secret = totp.unseal(user.mfa_secret or "", settings.secret_key)
+        step = totp.verify(secret, body.totp, user.mfa_last_step) if secret else None
+        if step is None:
+            _register_failure(db, key, settings)  # wrong codes count toward the lockout like wrong passwords
+            audit_logger.append(db, action="auth.login.failed", detail={"email_sha256": key[:16], "mfa": True})
+            db.commit()
+            raise HTTPException(401, GENERIC_FAILURE)
+        user.mfa_last_step = step  # a code can be used once
+
     if throttle:
         db.delete(throttle)
     if needs_rehash(user.password_hash):
@@ -93,3 +107,69 @@ def logout(response: Response, principal: Principal = Depends(current_principal)
     audit_logger.append(db, action="auth.logout", user_id=principal.user.id)
     db.commit()
     response.delete_cookie(COOKIE_NAME, **_cookie_args(settings))
+
+
+def _revoke_all(db: Session, user_id) -> None:
+    db.execute(update(User).where(User.id == user_id).values(token_version=User.token_version + 1))
+
+
+@router.post("/password", status_code=204)
+def change_password(body: PasswordChangeIn, response: Response, principal: Principal = Depends(current_principal),
+                    db: Session = Depends(get_db), settings: Settings = Depends(get_settings)) -> None:
+    """Change your own password. Every session (including this one) is revoked: sign in again afterwards."""
+    user = principal.user
+    if not verify_password(user.password_hash, body.current_password):
+        audit_logger.append(db, action="auth.password.change_failed", user_id=user.id)
+        db.commit()
+        raise HTTPException(403, "Current password is incorrect")
+    if body.new_password == body.current_password:
+        raise HTTPException(422, "Choose a different password")
+    user.password_hash = hash_password(body.new_password)
+    _revoke_all(db, user.id)
+    audit_logger.append(db, action="auth.password.changed", user_id=user.id)
+    db.commit()
+    response.delete_cookie(COOKIE_NAME, **_cookie_args(settings))
+
+
+@router.post("/mfa/setup", response_model=MfaSetupOut)
+def mfa_setup(principal: Principal = Depends(current_principal), db: Session = Depends(get_db),
+              settings: Settings = Depends(get_settings)) -> MfaSetupOut:
+    """Start enrolment: returns a fresh secret to add to an authenticator app. MFA is off until /mfa/enable."""
+    user = principal.user
+    if user.mfa_enabled:
+        raise HTTPException(409, "MFA is already enabled")
+    secret = totp.new_secret()
+    user.mfa_secret = totp.seal(secret, settings.secret_key)
+    db.commit()
+    return MfaSetupOut(secret=secret, otpauth_uri=totp.provisioning_uri("CASE-OPS", user.email, secret))
+
+
+@router.post("/mfa/enable", status_code=204)
+def mfa_enable(body: MfaCodeIn, principal: Principal = Depends(current_principal), db: Session = Depends(get_db),
+               settings: Settings = Depends(get_settings)) -> None:
+    user = principal.user
+    secret = totp.unseal(user.mfa_secret or "", settings.secret_key) if user.mfa_secret else None
+    if user.mfa_enabled or not secret:
+        raise HTTPException(409, "Start MFA setup first")
+    step = totp.verify(secret, body.code)
+    if step is None:
+        raise HTTPException(422, "That code is not valid")
+    user.mfa_enabled, user.mfa_last_step = True, step
+    audit_logger.append(db, action="auth.mfa.enabled", user_id=user.id)
+    db.commit()
+
+
+@router.post("/mfa/disable", status_code=204)
+def mfa_disable(body: MfaDisableIn, principal: Principal = Depends(current_principal), db: Session = Depends(get_db),
+                settings: Settings = Depends(get_settings)) -> None:
+    user = principal.user
+    secret = totp.unseal(user.mfa_secret or "", settings.secret_key) if user.mfa_secret else None
+    ok = (user.mfa_enabled and verify_password(user.password_hash, body.password) and secret is not None
+          and totp.verify(secret, body.code, user.mfa_last_step) is not None)
+    if not ok:
+        audit_logger.append(db, action="auth.mfa.disable_failed", user_id=user.id)
+        db.commit()
+        raise HTTPException(403, "Password or code is incorrect")
+    user.mfa_enabled, user.mfa_secret, user.mfa_last_step = False, None, None
+    audit_logger.append(db, action="auth.mfa.disabled", user_id=user.id)
+    db.commit()

@@ -1,7 +1,14 @@
-# Local/staging stack:  cp .env.example .env  (fill in the secrets)  then
-#   docker compose -f infrastructure/docker-compose.yml --env-file .env up --build
-#   docker compose -f infrastructure/docker-compose.yml --env-file .env run --rm backend python -m app.cli init-db
-#   docker compose -f infrastructure/docker-compose.yml --env-file .env run --rm backend python -m app.cli create-user --email you@firm.com --role attorney
+# Production-shaped stack on one host:  nginx (TLS, static frontend, rate limits) -> API -> Postgres.
+#   1. cp .env.example .env   and fill in the secrets
+#   2. put TLS files in infrastructure/certs/fullchain.pem and privkey.pem
+#      (local test certificate: openssl req -x509 -nodes -newkey rsa:2048 -days 30 -subj "/CN=localhost" \
+#         -keyout infrastructure/certs/privkey.pem -out infrastructure/certs/fullchain.pem)
+#   3. copy the static frontend files into infrastructure/site/
+#   4. docker compose -f infrastructure/docker-compose.yml --env-file .env up -d --build db
+#      docker compose -f infrastructure/docker-compose.yml --env-file .env run --rm backend python -m app.cli migrate
+#      docker compose -f infrastructure/docker-compose.yml --env-file .env run --rm backend python -m app.cli create-user --email you@firm.com --role admin
+#      docker compose -f infrastructure/docker-compose.yml --env-file .env up -d
+#   5. schedule:  docker compose ... run --rm backend python -m app.cli reap     (every ~10 minutes)
 services:
   db:
     image: postgres:16
@@ -27,21 +34,43 @@ services:
       CASEOPS_DATABASE_URL: postgresql+psycopg://caseops:${POSTGRES_PASSWORD}@db:5432/caseops
       CASEOPS_SECRET_KEY: ${CASEOPS_SECRET_KEY:?set CASEOPS_SECRET_KEY in .env}
       CASEOPS_WEBHOOK_SECRET: ${CASEOPS_WEBHOOK_SECRET:?set CASEOPS_WEBHOOK_SECRET in .env}
-      CASEOPS_COOKIE_SECURE: ${CASEOPS_COOKIE_SECURE:-true}
-      CASEOPS_COOKIE_SAMESITE: ${CASEOPS_COOKIE_SAMESITE:-lax}
-      CASEOPS_CORS_ORIGINS: ${CASEOPS_CORS_ORIGINS:-[]}
+      CASEOPS_COOKIE_SECURE: "true"
+      CASEOPS_COOKIE_SAMESITE: lax
+      CASEOPS_CORS_ORIGINS: "[]"                       # same origin through the proxy: no CORS needed
+      CASEOPS_TRUST_PROXY_HEADERS: "true"              # nginx overwrites X-Forwarded-For; the API is not published
+      CASEOPS_INGESTION_PROVIDER: ${CASEOPS_INGESTION_PROVIDER:-local}
+      CASEOPS_INGEST_DATE_ORDER: ${CASEOPS_INGEST_DATE_ORDER:-mdy}
+      CASEOPS_CONTRADICTION_PROVIDER: ${CASEOPS_CONTRADICTION_PROVIDER:-none}
+      CASEOPS_ANTHROPIC_API_KEY: ${CASEOPS_ANTHROPIC_API_KEY:-}
+      CASEOPS_CONTRADICTION_MODEL: ${CASEOPS_CONTRADICTION_MODEL:-}
     depends_on:
       db:
         condition: service_healthy
     volumes:
       - uploads:/data/uploads
-    ports:
-      - "127.0.0.1:8000:8000"      # localhost only; put a TLS reverse proxy in front for real use
+    expose:
+      - "8000"
     restart: unless-stopped
     read_only: true
     tmpfs: ["/tmp"]
     security_opt: ["no-new-privileges:true"]
     cap_drop: ["ALL"]
+
+  proxy:
+    image: nginx:1.27-alpine
+    depends_on: [backend]
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./nginx/nginx.conf:/etc/nginx/nginx.conf:ro
+      - ./nginx/proxy_params.conf:/etc/nginx/proxy_params.conf:ro
+      - ./certs:/etc/nginx/certs:ro
+      - ./site:/srv/site:ro
+    restart: unless-stopped
+    cap_drop: ["ALL"]
+    cap_add: ["NET_BIND_SERVICE", "CHOWN", "SETGID", "SETUID"]
+    security_opt: ["no-new-privileges:true"]
 
 volumes:
   pgdata:

@@ -23,6 +23,7 @@ class LoginIn(BaseModel):
     model_config = ConfigDict(extra="forbid")  # passwords are NOT whitespace-stripped
     email: EmailStr
     password: str = Field(min_length=1, max_length=128)
+    totp: str | None = Field(None, pattern=r"^\d{6}$")  # required only for accounts with MFA enabled
 
     @field_validator("email", mode="before")
     @classmethod
@@ -39,6 +40,93 @@ class LoginIn(BaseModel):
 
 class UserOut(Out):
     id: uuid.UUID
+    email: str
+    role: str
+    mfa_enabled: bool = False
+
+
+def _strong(v: str) -> str:
+    if _CONTROL.search(v):
+        raise ValueError("Unsupported characters")
+    if len(v) < 12:
+        raise ValueError("Password must be at least 12 characters")
+    return v
+
+
+class PasswordChangeIn(Strict):
+    model_config = ConfigDict(extra="forbid")  # passwords are not whitespace-stripped
+    current_password: str = Field(min_length=1, max_length=128)
+    new_password: str = Field(min_length=12, max_length=128)
+
+    @field_validator("new_password")
+    @classmethod
+    def _check_new_password(cls, v: str) -> str:
+        return _strong(v)
+
+
+class UserCreate(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    email: EmailStr
+    role: Literal["admin", "attorney", "paralegal"]
+    password: str = Field(min_length=12, max_length=128)
+
+    @field_validator("password")
+    @classmethod
+    def _check_password(cls, v: str) -> str:
+        return _strong(v)
+
+    @field_validator("email", mode="before")
+    @classmethod
+    def _trim(cls, v):
+        return v.strip().lower() if isinstance(v, str) else v
+
+
+class PasswordResetIn(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    new_password: str = Field(min_length=12, max_length=128)
+
+    @field_validator("new_password")
+    @classmethod
+    def _check_new_password(cls, v: str) -> str:
+        return _strong(v)
+
+
+class UserAdminOut(Out):
+    id: uuid.UUID
+    email: str
+    role: str
+    is_active: bool
+    mfa_enabled: bool
+    created_at: datetime
+
+
+class MfaSetupOut(BaseModel):
+    secret: str
+    otpauth_uri: str
+
+
+class MfaCodeIn(Strict):
+    code: str = Field(pattern=r"^\d{6}$")
+
+
+class MfaDisableIn(Strict):
+    password: str = Field(min_length=1, max_length=128)
+    code: str = Field(pattern=r"^\d{6}$")
+
+
+class MemberAdd(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    email: EmailStr
+    role: Literal["owner", "editor", "viewer"] = "viewer"
+
+    @field_validator("email", mode="before")
+    @classmethod
+    def _trim(cls, v):
+        return v.strip().lower() if isinstance(v, str) else v
+
+
+class MemberOut(BaseModel):
+    user_id: uuid.UUID
     email: str
     role: str
 
@@ -107,6 +195,36 @@ class ContradictionOut(BaseModel):
     summary: str
     claim_a: SourceRef
     claim_b: SourceRef
+    origin: Literal["manual", "ai"]  # "ai" = proposed by a model, not a finding, until reviewed
+    review_state: Literal["unreviewed", "confirmed", "dismissed"]
+
+
+class ContradictionCreate(Strict):
+    title: str = Field(min_length=1, max_length=300)
+    summary: str = Field(min_length=1, max_length=4000)
+    line_a_id: uuid.UUID
+    line_b_id: uuid.UUID
+
+    @model_validator(mode="after")
+    def _distinct(self):
+        if self.line_a_id == self.line_b_id:
+            raise ValueError("A contradiction needs two different source lines")
+        return self
+
+
+class ReviewIn(Strict):
+    decision: Literal["confirm", "dismiss"]
+
+
+class SearchHitOut(BaseModel):
+    source: SourceRef
+    snippet: str
+
+
+class SearchOut(BaseModel):
+    query: str
+    total: int
+    hits: list[SearchHitOut]
 
 
 class DeadlineCreate(Strict):

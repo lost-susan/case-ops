@@ -31,6 +31,9 @@ class User(Base):
     role: Mapped[str] = mapped_column(String(16), default="attorney")
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)
     token_version: Mapped[int] = mapped_column(Integer, default=0)  # bump to revoke every session of this user
+    mfa_secret: Mapped[str | None] = mapped_column(String(255), nullable=True)  # Fernet-sealed TOTP secret
+    mfa_enabled: Mapped[bool] = mapped_column(Boolean, default=False)
+    mfa_last_step: Mapped[int | None] = mapped_column(BigInteger, nullable=True)  # last accepted TOTP step (no replay)
     created_at: Mapped[datetime] = mapped_column(UTCDateTime, default=utcnow)
 
 
@@ -84,6 +87,7 @@ class Document(Base):
     ocr_confidence: Mapped[float | None] = mapped_column(Float, nullable=True)
     uploaded_by: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id"))
     created_at: Mapped[datetime] = mapped_column(UTCDateTime, default=utcnow)
+    updated_at: Mapped[datetime] = mapped_column(UTCDateTime, default=utcnow, onupdate=utcnow)  # stuck-job detection
 
 
 class DocLine(Base):
@@ -119,6 +123,12 @@ class Event(Base):
 
 class Contradiction(Base):
     __tablename__ = "contradictions"
+    __table_args__ = (
+        CheckConstraint("line_a_id <> line_b_id", name="ck_contradictions_distinct"),
+        CheckConstraint(_in("origin", ("manual", "ai")), name="ck_contradictions_origin"),
+        CheckConstraint(_in("review_state", ("unreviewed", "confirmed", "dismissed")), name="ck_contradictions_review"),
+        UniqueConstraint("case_id", "line_a_id", "line_b_id", name="uq_contradictions_pair"),
+    )
 
     id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, default=uuid.uuid4)
     case_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("cases.id", ondelete="CASCADE"), index=True)
@@ -126,6 +136,8 @@ class Contradiction(Base):
     summary: Mapped[str] = mapped_column(Text)
     line_a_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("doc_lines.id", ondelete="RESTRICT"))
     line_b_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("doc_lines.id", ondelete="RESTRICT"))
+    origin: Mapped[str] = mapped_column(String(8), default="manual")  # "ai" rows are proposals until a lawyer reviews
+    review_state: Mapped[str] = mapped_column(String(12), default="confirmed")
 
 
 class Deadline(Base):

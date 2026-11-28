@@ -13,11 +13,12 @@ jobs:
           python-version: "3.13"
           cache: pip
           cache-dependency-path: backend/requirements-dev.txt
+      - run: sudo apt-get update && sudo apt-get install -y --no-install-recommends tesseract-ocr tesseract-ocr-eng poppler-utils
       - run: pip install -r backend/requirements-dev.txt
       - run: python -m pytest -q
         working-directory: backend
 
-  # Runs the same suite against real Postgres (advisory locks, JSON and constraint behaviour).
+  # Same suite against real Postgres (advisory locks, JSON, constraints, audit triggers, trigram index).
   backend-postgres:
     runs-on: ubuntu-latest
     services:
@@ -38,6 +39,7 @@ jobs:
           python-version: "3.13"
           cache: pip
           cache-dependency-path: backend/requirements-dev.txt
+      - run: sudo apt-get update && sudo apt-get install -y --no-install-recommends tesseract-ocr tesseract-ocr-eng poppler-utils
       - run: pip install -r backend/requirements-dev.txt
       - run: python -m pytest -q
         working-directory: backend

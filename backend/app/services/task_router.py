@@ -10,7 +10,7 @@ from sqlalchemy import update
 from ai_engine.pipelines.ingestion import ExtractionResult, get_provider
 from app.core.clock import utcnow
 from app.db import session_factory
-from app.models.orm import DocLine, Document, Event
+from app.models.orm import Case, DocLine, Document, Event
 from app.services import audit_logger
 from app.services.storage import LocalStorage
 
@@ -19,8 +19,9 @@ MAX_LINES = 50_000
 ALLOWED_FINAL = {"awaiting_extraction", "parsed", "transcribed"}
 
 
-def enqueue_ingestion(background: BackgroundTasks, document_id: uuid.UUID, storage_dir: str, provider: str) -> None:
-    background.add_task(run_ingestion, document_id, storage_dir, provider)
+def enqueue_ingestion(background: BackgroundTasks, document_id: uuid.UUID, storage_dir: str, provider: str,
+                      options: dict | None = None) -> None:
+    background.add_task(run_ingestion, document_id, storage_dir, provider, options)
 
 
 def _validate(result: ExtractionResult) -> None:
@@ -37,7 +38,7 @@ def _validate(result: ExtractionResult) -> None:
             raise ValueError("Event time must be timezone-aware")
 
 
-def run_ingestion(document_id: uuid.UUID, storage_dir: str, provider_name: str) -> None:
+def run_ingestion(document_id: uuid.UUID, storage_dir: str, provider_name: str, options: dict | None = None) -> None:
     with session_factory()() as db:
         # Atomic claim: only one worker can move queued -> processing, so a retry never double-processes.
         claimed = db.execute(
@@ -48,9 +49,10 @@ def run_ingestion(document_id: uuid.UUID, storage_dir: str, provider_name: str) 
             return
         doc = db.get(Document, document_id)
         try:
-            result = get_provider(provider_name).process(
+            result = get_provider(provider_name, **(options or {})).process(
                 path=LocalStorage(storage_dir).path(doc.storage_key), kind=doc.kind, filename=doc.filename,
-                sha256=doc.sha256, size_bytes=doc.size_bytes, received_at=utcnow())
+                sha256=doc.sha256, size_bytes=doc.size_bytes, received_at=utcnow(),
+                case_timezone=db.get(Case, doc.case_id).timezone)
             _validate(result)
             rows = [
                 DocLine(document_id=doc.id, page=ln.page, idx=i, text=ln.text[:20000],

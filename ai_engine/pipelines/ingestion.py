@@ -1,6 +1,7 @@
 """Ingestion provider contract (OCR for scans, ASR for audio, event extraction).
 
-Milestone 1 ships only MockProvider. A real provider implements `IngestionProvider.process` and returns lines
+`mock` records file metadata only; `local` (ai_engine/pipelines/extraction.py) really reads PDFs, text/chat exports, scans
+(Tesseract) and audio (faster-whisper). A provider implements `IngestionProvider.process` and returns lines
 (the unit of proof) plus events that point at those lines by index. The backend rejects any event whose
 line_index is out of range, so nothing can enter the timeline without raw-source proof."""
 from dataclasses import dataclass, field
@@ -39,7 +40,7 @@ class ExtractionResult:
 
 class IngestionProvider(Protocol):
     def process(self, *, path: Path, kind: str, filename: str, sha256: str, size_bytes: int,
-                received_at: datetime) -> ExtractionResult: ...
+                received_at: datetime, case_timezone: str = "UTC") -> ExtractionResult: ...
 
 
 class MockProvider:
@@ -47,7 +48,7 @@ class MockProvider:
     flow works end to end until a real OCR/ASR engine is plugged in."""
 
     def process(self, *, path: Path, kind: str, filename: str, sha256: str, size_bytes: int,
-                received_at: datetime) -> ExtractionResult:
+                received_at: datetime, case_timezone: str = "UTC") -> ExtractionResult:
         lines = (
             ExtractedLine(f"FILE: {filename}"),
             ExtractedLine(f"TYPE: {kind.upper()} • SIZE: {size_bytes} bytes"),
@@ -58,7 +59,11 @@ class MockProvider:
         return ExtractionResult(status="awaiting_extraction", lines=lines, events=(event,), confidence=None)
 
 
-def get_provider(name: str) -> IngestionProvider:
+def get_provider(name: str, **options) -> IngestionProvider:
     if name == "mock":
         return MockProvider()
+    if name == "local":
+        from ai_engine.pipelines.extraction import LocalProvider  # imported lazily: heavy optional dependencies
+
+        return LocalProvider(**options)
     raise ValueError(f"Unknown ingestion provider: {name}")
